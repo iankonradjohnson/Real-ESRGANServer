@@ -33,8 +33,11 @@ def process_job(job_id):
         JOBS[job_id]["status"] = "receiving"
         receive_code = JOBS[job_id]["receive_code"]
         zip_path = os.path.join("/workspace", f"{job_id}.zip")
-        with open(zip_path, "wb") as f:
-            subprocess.run(["runpodctl", "receive", receive_code], stdout=f, check=True)
+        subprocess.run(
+            f"runpodctl receive {receive_code} > {zip_path}",
+            shell=True,
+            check=True
+        )
 
         JOBS[job_id]["status"] = "unzipping"
         shutil.rmtree(IN_DIR, ignore_errors=True)
