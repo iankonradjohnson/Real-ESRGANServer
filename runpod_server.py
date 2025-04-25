@@ -21,29 +21,33 @@ os.makedirs(IN_DIR, exist_ok=True)
 os.makedirs(OUT_DIR, exist_ok=True)
 os.makedirs(TMP_DIR, exist_ok=True)
 
+def find_latest_zip(directory):
+    files = [f for f in os.listdir(directory) if f.endswith(".zip")]
+    files = sorted(files, key=lambda x: os.path.getctime(os.path.join(directory, x)), reverse=True)
+    return os.path.join(directory, files[0]) if files else None
 
 def unzip_to_dir(zip_path, target_dir):
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
         zip_ref.extractall(target_dir)
 
-
 def zip_dir(source_dir, output_zip):
     shutil.make_archive(output_zip.replace(".zip", ""), 'zip', source_dir)
 
-
-def process_job(job_id, zip_path):
+def process_job(job_id):
     try:
+        JOBS[job_id]["status"] = "locating_zip"
+        zip_path = find_latest_zip("/workspace")
+        if not zip_path:
+            raise FileNotFoundError("No .zip file found in /workspace")
+
         JOBS[job_id]["status"] = "unzipping"
-        # Clear input/output dirs
         shutil.rmtree(IN_DIR, ignore_errors=True)
         shutil.rmtree(OUT_DIR, ignore_errors=True)
         os.makedirs(IN_DIR, exist_ok=True)
         os.makedirs(OUT_DIR, exist_ok=True)
-
         unzip_to_dir(zip_path, IN_DIR)
 
         JOBS[job_id]["status"] = "processing"
-        # Run Real-ESRGAN using the Python script
         subprocess.run([
             "python",
             ESRGAN_SCRIPT,
@@ -66,24 +70,15 @@ def process_job(job_id, zip_path):
         JOBS[job_id]["status"] = "error"
         JOBS[job_id]["error"] = str(e)
 
-
 @app.route("/jobs", methods=["POST"])
 def create_job():
-    if 'file' not in request.files:
-        return jsonify({"error": "Missing file upload"}), 400
-
-    file = request.files['file']
     job_id = str(uuid.uuid4())
-    input_zip_path = os.path.join(TMP_DIR, f"{job_id}.zip")
-    file.save(input_zip_path)
+    JOBS[job_id] = {"status": "pending"}
 
-    JOBS[job_id] = {"status": "pending", "input_path": input_zip_path}
-
-    thread = Thread(target=process_job, args=(job_id, input_zip_path))
+    thread = Thread(target=process_job, args=(job_id,))
     thread.start()
 
     return jsonify({"job_id": job_id})
-
 
 @app.route("/jobs/<job_id>/status", methods=["GET"])
 def job_status(job_id):
@@ -97,7 +92,6 @@ def job_status(job_id):
         "error": job.get("error")
     })
 
-
 @app.route("/jobs/<job_id>/download", methods=["GET"])
 def download_output(job_id):
     job = JOBS.get(job_id)
@@ -105,7 +99,6 @@ def download_output(job_id):
         return jsonify({"error": "Output not ready"}), 400
 
     return send_file(job["output_path"], as_attachment=True)
-
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
