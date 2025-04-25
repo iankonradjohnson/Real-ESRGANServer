@@ -58,7 +58,7 @@ def process_job(job_id):
         actual_input_dir = unzip_and_get_input_dir(zip_path, IN_DIR)
 
         JOBS[job_id]["status"] = "processing"
-        subprocess.run([
+        with subprocess.Popen([
             "python",
             ESRGAN_SCRIPT,
             "-i", actual_input_dir,
@@ -66,7 +66,13 @@ def process_job(job_id):
             "-n", "RealESRGAN_x4plus",
             "-t", "1000",
             "--tile_pad", "0"
-        ], check=True)
+        ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1) as proc:
+            for line in proc.stdout:
+                print(line, end='')  # Print each line as it comes in
+
+            proc.wait()
+            if proc.returncode != 0:
+                raise subprocess.CalledProcessError(proc.returncode, proc.args)
 
         JOBS[job_id]["status"] = "zipping"
         output_zip_path = os.path.join(TMP_DIR, f"{job_id}_out.zip")
