@@ -60,7 +60,7 @@ def process_job(job_id):
             ESRGAN_SCRIPT,
             "-i", IN_DIR,
             "-o", OUT_DIR,
-            "-n", "net_g_1000000",
+            "-n", "RealESRGAN_x4plus",
             "-t", "1000",
             "--tile_pad", "0"
         ], check=True)
