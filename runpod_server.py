@@ -71,9 +71,7 @@ def process_job(job_id):
             "-o", OUT_DIR,
             "-n", "net_g_1000000",
             "-t", "1000",
-            "--tile_pad", "0",
-            "--pre_pad", "0",
-            "--postscale", ".75"
+            "--tile_pad", "0"
         ], check=True)
 
         JOBS[job_id]["status"] = "zipping"
