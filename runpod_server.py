@@ -9,7 +9,7 @@ import subprocess
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1GB
 
-WORKSPACE_DIR = "workspace"
+WORKSPACE_DIR = "/workspace"
 BASE_DIR = os.path.join(WORKSPACE_DIR, "data")
 IN_DIR = os.path.join(BASE_DIR, "in")
 OUT_DIR = os.path.join(BASE_DIR, "out")
