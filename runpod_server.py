@@ -7,7 +7,8 @@ from threading import Thread
 import subprocess
 
 app = Flask(__name__)
-# WORKSPACE_DIR = "/Users/iankonradjohnson/workspace"
+app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1GB
+
 WORKSPACE_DIR = "workspace"
 BASE_DIR = os.path.join(WORKSPACE_DIR, "data")
 IN_DIR = os.path.join(BASE_DIR, "in")
