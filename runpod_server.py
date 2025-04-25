@@ -26,18 +26,11 @@ def find_latest_zip(directory):
     files = sorted(files, key=lambda x: os.path.getctime(os.path.join(directory, x)), reverse=True)
     return os.path.join(directory, files[0]) if files else None
 
-def unzip_to_dir(zip_path, target_dir):
+def unzip_and_get_input_dir(zip_path, extract_root):
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-        members = zip_ref.namelist()
-        root_dir = os.path.commonprefix(members).rstrip("/")
-        zip_ref.extractall(target_dir)
-
-        # If all files are in a single subdir, move them up
-        extracted_path = os.path.join(target_dir, root_dir)
-        if os.path.isdir(extracted_path):
-            for filename in os.listdir(extracted_path):
-                shutil.move(os.path.join(extracted_path, filename), target_dir)
-            shutil.rmtree(extracted_path)
+        zip_ref.extractall(extract_root)
+    folder_name = os.path.splitext(os.path.basename(zip_path))[0]
+    return os.path.join(extract_root, folder_name)
 
 def zip_dir(source_dir, output_zip):
     shutil.make_archive(output_zip.replace(".zip", ""), 'zip', source_dir)
@@ -61,13 +54,14 @@ def process_job(job_id):
         shutil.rmtree(OUT_DIR, ignore_errors=True)
         os.makedirs(IN_DIR, exist_ok=True)
         os.makedirs(OUT_DIR, exist_ok=True)
-        unzip_to_dir(zip_path, IN_DIR)
+
+        actual_input_dir = unzip_and_get_input_dir(zip_path, IN_DIR)
 
         JOBS[job_id]["status"] = "processing"
         subprocess.run([
             "python",
             ESRGAN_SCRIPT,
-            "-i", IN_DIR,
+            "-i", actual_input_dir,
             "-o", OUT_DIR,
             "-n", "RealESRGAN_x4plus",
             "-t", "1000",
