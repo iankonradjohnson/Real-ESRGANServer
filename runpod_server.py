@@ -26,18 +26,18 @@ def find_latest_zip(directory):
     files = sorted(files, key=lambda x: os.path.getctime(os.path.join(directory, x)), reverse=True)
     return os.path.join(directory, files[0]) if files else None
 
-def unzip_flatten(zip_path, target_dir):
-    if not zipfile.is_zipfile(zip_path):
-        raise ValueError(f"{zip_path} is not a valid zip file")
+def unzip_to_dir(zip_path, target_dir):
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-        for member in zip_ref.namelist():
-            filename = os.path.basename(member)
-            if not filename:
-                continue  # skip directories
-            source = zip_ref.open(member)
-            target = open(os.path.join(target_dir, filename), "wb")
-            with source, target:
-                shutil.copyfileobj(source, target)
+        members = zip_ref.namelist()
+        root_dir = os.path.commonprefix(members).rstrip("/")
+        zip_ref.extractall(target_dir)
+
+        # If all files are in a single subdir, move them up
+        extracted_path = os.path.join(target_dir, root_dir)
+        if os.path.isdir(extracted_path):
+            for filename in os.listdir(extracted_path):
+                shutil.move(os.path.join(extracted_path, filename), target_dir)
+            shutil.rmtree(extracted_path)
 
 def zip_dir(source_dir, output_zip):
     shutil.make_archive(output_zip.replace(".zip", ""), 'zip', source_dir)
@@ -61,7 +61,7 @@ def process_job(job_id):
         shutil.rmtree(OUT_DIR, ignore_errors=True)
         os.makedirs(IN_DIR, exist_ok=True)
         os.makedirs(OUT_DIR, exist_ok=True)
-        unzip_flatten(zip_path, IN_DIR)
+        unzip_to_dir(zip_path, IN_DIR)
 
         JOBS[job_id]["status"] = "processing"
         subprocess.run([
@@ -69,7 +69,7 @@ def process_job(job_id):
             ESRGAN_SCRIPT,
             "-i", IN_DIR,
             "-o", OUT_DIR,
-            "-n", "net_g_1000000",
+            "-n", "RealESRGAN_x4plus",
             "-t", "1000",
             "--tile_pad", "0"
         ], check=True)
