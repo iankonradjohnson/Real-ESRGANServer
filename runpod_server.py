@@ -21,11 +21,6 @@ os.makedirs(IN_DIR, exist_ok=True)
 os.makedirs(OUT_DIR, exist_ok=True)
 os.makedirs(TMP_DIR, exist_ok=True)
 
-def find_latest_zip(directory):
-    files = [f for f in os.listdir(directory) if f.endswith(".zip")]
-    files = sorted(files, key=lambda x: os.path.getctime(os.path.join(directory, x)), reverse=True)
-    return os.path.join(directory, files[0]) if files else None
-
 def unzip_to_dir(zip_path, target_dir):
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
         zip_ref.extractall(target_dir)
@@ -35,10 +30,11 @@ def zip_dir(source_dir, output_zip):
 
 def process_job(job_id):
     try:
-        JOBS[job_id]["status"] = "locating_zip"
-        zip_path = find_latest_zip("/workspace")
-        if not zip_path:
-            raise FileNotFoundError("No .zip file found in /workspace")
+        JOBS[job_id]["status"] = "receiving"
+        receive_code = JOBS[job_id]["receive_code"]
+        zip_path = os.path.join("/workspace", f"{job_id}.zip")
+        with open(zip_path, "wb") as f:
+            subprocess.run(["runpodctl", "receive", receive_code], stdout=f, check=True)
 
         JOBS[job_id]["status"] = "unzipping"
         shutil.rmtree(IN_DIR, ignore_errors=True)
@@ -72,8 +68,12 @@ def process_job(job_id):
 
 @app.route("/jobs", methods=["POST"])
 def create_job():
+    data = request.get_json()
+    if not data or "receive_code" not in data:
+        return jsonify({"error": "Missing receive_code in request body"}), 400
+
     job_id = str(uuid.uuid4())
-    JOBS[job_id] = {"status": "pending"}
+    JOBS[job_id] = {"status": "pending", "receive_code": data["receive_code"]}
 
     thread = Thread(target=process_job, args=(job_id,))
     thread.start()
