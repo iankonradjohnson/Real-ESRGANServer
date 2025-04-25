@@ -9,7 +9,7 @@ import subprocess
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1GB
 
-WORKSPACE_DIR = "/workspace"
+WORKSPACE_DIR = "workspace"
 BASE_DIR = os.path.join(WORKSPACE_DIR, "data")
 IN_DIR = os.path.join(BASE_DIR, "in")
 OUT_DIR = os.path.join(BASE_DIR, "out")
@@ -26,9 +26,18 @@ def find_latest_zip(directory):
     files = sorted(files, key=lambda x: os.path.getctime(os.path.join(directory, x)), reverse=True)
     return os.path.join(directory, files[0]) if files else None
 
-def unzip_to_dir(zip_path, target_dir):
+def unzip_flatten(zip_path, target_dir):
+    if not zipfile.is_zipfile(zip_path):
+        raise ValueError(f"{zip_path} is not a valid zip file")
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-        zip_ref.extractall(target_dir)
+        for member in zip_ref.namelist():
+            filename = os.path.basename(member)
+            if not filename:
+                continue  # skip directories
+            source = zip_ref.open(member)
+            target = open(os.path.join(target_dir, filename), "wb")
+            with source, target:
+                shutil.copyfileobj(source, target)
 
 def zip_dir(source_dir, output_zip):
     shutil.make_archive(output_zip.replace(".zip", ""), 'zip', source_dir)
@@ -52,7 +61,7 @@ def process_job(job_id):
         shutil.rmtree(OUT_DIR, ignore_errors=True)
         os.makedirs(IN_DIR, exist_ok=True)
         os.makedirs(OUT_DIR, exist_ok=True)
-        unzip_to_dir(zip_path, IN_DIR)
+        unzip_flatten(zip_path, IN_DIR)
 
         JOBS[job_id]["status"] = "processing"
         subprocess.run([
@@ -60,9 +69,11 @@ def process_job(job_id):
             ESRGAN_SCRIPT,
             "-i", IN_DIR,
             "-o", OUT_DIR,
-            "-n", "RealESRGAN_x4plus",
+            "-n", "net_g_1000000",
             "-t", "1000",
-            "--tile_pad", "0"
+            "--tile_pad", "0",
+            "--pre_pad", "0",
+            "--postscale", ".75"
         ], check=True)
 
         JOBS[job_id]["status"] = "zipping"
