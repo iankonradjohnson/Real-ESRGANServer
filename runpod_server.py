@@ -79,6 +79,13 @@ def process_job(job_id):
             if proc.returncode != 0:
                 raise subprocess.CalledProcessError(proc.returncode, proc.args)
 
+        # ✨ ADD THIS BEFORE zipping
+        import json
+        credentials_path = "/workspace/gcs_key.json"
+        with open(credentials_path, "w") as f:
+            json.dump(JOBS[job_id]["gcs_credentials_json"], f)
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
+
         JOBS[job_id]["status"] = "zipping"
         output_zip_path = os.path.join(TMP_DIR, f"{job_id}_out.zip")
         zip_dir(OUT_DIR, output_zip_path)
@@ -92,6 +99,7 @@ def process_job(job_id):
     except Exception as e:
         JOBS[job_id]["status"] = "error"
         JOBS[job_id]["error"] = str(e)
+
 
 
 @app.route("/jobs", methods=["POST"])
