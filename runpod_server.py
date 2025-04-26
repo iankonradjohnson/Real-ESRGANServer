@@ -93,23 +93,26 @@ def process_job(job_id):
         JOBS[job_id]["status"] = "error"
         JOBS[job_id]["error"] = str(e)
 
+
 @app.route("/jobs", methods=["POST"])
 def create_job():
     data = request.get_json()
-    if not data or "receive_code" not in data or "model_name" not in data:
-        return jsonify({"error": "Missing receive_code or model_name in request body"}), 400
+    if not data or "receive_code" not in data or "model_name" not in data or "gcs_credentials_json" not in data:
+        return jsonify({"error": "Missing receive_code, model_name, or gcs_credentials_json in request body"}), 400
 
     job_id = str(uuid.uuid4())
     JOBS[job_id] = {
         "status": "pending",
         "receive_code": data["receive_code"],
-        "model_name": data["model_name"]
+        "model_name": data["model_name"],
+        "gcs_credentials_json": data["gcs_credentials_json"]
     }
 
     thread = Thread(target=process_job, args=(job_id,))
     thread.start()
 
     return jsonify({"job_id": job_id})
+
 
 @app.route("/jobs/<job_id>/status", methods=["GET"])
 def job_status(job_id):
