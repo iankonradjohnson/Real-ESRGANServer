@@ -15,7 +15,7 @@ BASE_DIR = os.path.join(WORKSPACE_DIR, "data")
 IN_DIR = os.path.join(BASE_DIR, "in")
 OUT_DIR = os.path.join(BASE_DIR, "out")
 TMP_DIR = "/tmp/runpod_jobs"
-ESRGAN_SCRIPT = os.path.join(WORKSPACE_DIR, "Real-ESRGAN/inference_realesrgan.py")
+REAL_ESRGAN_DIR = os.path.join(WORKSPACE_DIR, "Real-ESRGAN")
 JOBS = {}  # job_id -> status/info
 GCS_BUCKET = os.environ.get("GCS_BUCKET")  # Bucket name from env var
 
@@ -48,6 +48,8 @@ def process_job(job_id):
     try:
         JOBS[job_id]["status"] = "receiving"
         receive_code = JOBS[job_id]["receive_code"]
+        model_name = JOBS[job_id]["model_name"]
+
         subprocess.run(f"runpodctl receive {receive_code}", shell=True, check=True)
 
         JOBS[job_id]["status"] = "unzipping"
@@ -64,13 +66,13 @@ def process_job(job_id):
 
         JOBS[job_id]["status"] = "processing"
         with subprocess.Popen([
-            "python", ESRGAN_SCRIPT,
+            "python", "inference_realesrgan.py",
             "-i", actual_input_dir,
             "-o", OUT_DIR,
-            "-n", "RealESRGAN_x4plus",
+            "-n", model_name,
             "-t", "1000",
             "--tile_pad", "0"
-        ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1) as proc:
+        ], cwd=REAL_ESRGAN_DIR, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1) as proc:
             for line in proc.stdout:
                 print(line, end='')
             proc.wait()
@@ -94,11 +96,15 @@ def process_job(job_id):
 @app.route("/jobs", methods=["POST"])
 def create_job():
     data = request.get_json()
-    if not data or "receive_code" not in data:
-        return jsonify({"error": "Missing receive_code in request body"}), 400
+    if not data or "receive_code" not in data or "model_name" not in data:
+        return jsonify({"error": "Missing receive_code or model_name in request body"}), 400
 
     job_id = str(uuid.uuid4())
-    JOBS[job_id] = {"status": "pending", "receive_code": data["receive_code"]}
+    JOBS[job_id] = {
+        "status": "pending",
+        "receive_code": data["receive_code"],
+        "model_name": data["model_name"]
+    }
 
     thread = Thread(target=process_job, args=(job_id,))
     thread.start()
