@@ -37,12 +37,13 @@ def unzip_and_get_input_dir(zip_path, extract_root):
 def zip_dir(source_dir, output_zip):
     shutil.make_archive(output_zip.replace(".zip", ""), 'zip', source_dir)
 
-def upload_to_gcs(source_path, dest_blob_name):
+def upload_to_gcs(bucket_name, source_path, dest_blob_name):
     client = storage.Client()
-    bucket = client.bucket(GCS_BUCKET)
+    bucket = client.bucket(bucket_name)
     blob = bucket.blob(dest_blob_name)
     blob.upload_from_filename(source_path)
     return blob.public_url
+
 
 def process_job(job_id):
     try:
@@ -91,7 +92,7 @@ def process_job(job_id):
         zip_dir(OUT_DIR, output_zip_path)
 
         JOBS[job_id]["status"] = "uploading"
-        public_url = upload_to_gcs(output_zip_path, f"jobs/{job_id}_out.zip")
+        public_url = upload_to_gcs(JOBS[job_id]["gcs_bucket_name"], output_zip_path, f"jobs/{job_id}_out.zip")
 
         JOBS[job_id]["status"] = "completed"
         JOBS[job_id]["gcs_url"] = public_url
@@ -105,15 +106,16 @@ def process_job(job_id):
 @app.route("/jobs", methods=["POST"])
 def create_job():
     data = request.get_json()
-    if not data or "receive_code" not in data or "model_name" not in data or "gcs_credentials_json" not in data:
-        return jsonify({"error": "Missing receive_code, model_name, or gcs_credentials_json in request body"}), 400
+    if not data or "receive_code" not in data or "model_name" not in data or "gcs_credentials_json" not in data or "gcs_bucket_name" not in data:
+        return jsonify({"error": "Missing fields"}), 400
 
     job_id = str(uuid.uuid4())
     JOBS[job_id] = {
         "status": "pending",
         "receive_code": data["receive_code"],
         "model_name": data["model_name"],
-        "gcs_credentials_json": data["gcs_credentials_json"]
+        "gcs_credentials_json": data["gcs_credentials_json"],
+        "gcs_bucket_name": data["gcs_bucket_name"]
     }
 
     thread = Thread(target=process_job, args=(job_id,))
