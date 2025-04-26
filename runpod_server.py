@@ -1,10 +1,11 @@
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify
 import uuid
 import os
 import shutil
 import zipfile
 from threading import Thread
 import subprocess
+from google.cloud import storage
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1GB
@@ -16,6 +17,7 @@ OUT_DIR = os.path.join(BASE_DIR, "out")
 TMP_DIR = "/tmp/runpod_jobs"
 ESRGAN_SCRIPT = os.path.join(WORKSPACE_DIR, "Real-ESRGAN/inference_realesrgan.py")
 JOBS = {}  # job_id -> status/info
+GCS_BUCKET = os.environ.get("GCS_BUCKET")  # Bucket name from env var
 
 os.makedirs(IN_DIR, exist_ok=True)
 os.makedirs(OUT_DIR, exist_ok=True)
@@ -35,18 +37,21 @@ def unzip_and_get_input_dir(zip_path, extract_root):
 def zip_dir(source_dir, output_zip):
     shutil.make_archive(output_zip.replace(".zip", ""), 'zip', source_dir)
 
+def upload_to_gcs(source_path, dest_blob_name):
+    client = storage.Client()
+    bucket = client.bucket(GCS_BUCKET)
+    blob = bucket.blob(dest_blob_name)
+    blob.upload_from_filename(source_path)
+    return blob.public_url
+
 def process_job(job_id):
     try:
         JOBS[job_id]["status"] = "receiving"
         receive_code = JOBS[job_id]["receive_code"]
-        subprocess.run(
-            f"runpodctl receive {receive_code}",
-            shell=True,
-            check=True
-        )
+        subprocess.run(f"runpodctl receive {receive_code}", shell=True, check=True)
 
         JOBS[job_id]["status"] = "unzipping"
-        zip_path = find_latest_zip("/workspace")
+        zip_path = find_latest_zip(WORKSPACE_DIR)
         if not zip_path:
             raise FileNotFoundError("No .zip file found after receive")
 
@@ -59,8 +64,7 @@ def process_job(job_id):
 
         JOBS[job_id]["status"] = "processing"
         with subprocess.Popen([
-            "python",
-            ESRGAN_SCRIPT,
+            "python", ESRGAN_SCRIPT,
             "-i", actual_input_dir,
             "-o", OUT_DIR,
             "-n", "RealESRGAN_x4plus",
@@ -68,8 +72,7 @@ def process_job(job_id):
             "--tile_pad", "0"
         ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1) as proc:
             for line in proc.stdout:
-                print(line, end='')  # Print each line as it comes in
-
+                print(line, end='')
             proc.wait()
             if proc.returncode != 0:
                 raise subprocess.CalledProcessError(proc.returncode, proc.args)
@@ -78,8 +81,11 @@ def process_job(job_id):
         output_zip_path = os.path.join(TMP_DIR, f"{job_id}_out.zip")
         zip_dir(OUT_DIR, output_zip_path)
 
+        JOBS[job_id]["status"] = "uploading"
+        public_url = upload_to_gcs(output_zip_path, f"jobs/{job_id}_out.zip")
+
         JOBS[job_id]["status"] = "completed"
-        JOBS[job_id]["output_path"] = output_zip_path
+        JOBS[job_id]["gcs_url"] = public_url
 
     except Exception as e:
         JOBS[job_id]["status"] = "error"
@@ -108,16 +114,17 @@ def job_status(job_id):
     return jsonify({
         "job_id": job_id,
         "status": job["status"],
-        "error": job.get("error")
+        "error": job.get("error"),
+        "gcs_url": job.get("gcs_url")
     })
 
-@app.route("/jobs/<job_id>/download", methods=["GET"])
-def download_output(job_id):
+@app.route("/jobs/<job_id>/download_url", methods=["GET"])
+def get_download_url(job_id):
     job = JOBS.get(job_id)
-    if not job or job["status"] != "completed" or "output_path" not in job:
+    if not job or job["status"] != "completed" or "gcs_url" not in job:
         return jsonify({"error": "Output not ready"}), 400
 
-    return send_file(job["output_path"], as_attachment=True)
+    return jsonify({"download_url": job["gcs_url"]})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
