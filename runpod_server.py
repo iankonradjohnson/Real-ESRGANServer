@@ -1,3 +1,5 @@
+import glob
+
 from flask import Flask, request, jsonify
 import uuid
 import os
@@ -45,6 +47,20 @@ def upload_to_gcs(bucket_name, source_path, dest_blob_name):
     return blob.public_url
 
 
+def get_num_gpus():
+    try:
+        result = subprocess.run(["nvidia-smi", "-L"], stdout=subprocess.PIPE, text=True)
+        return len(result.stdout.strip().split("\n"))
+    except Exception:
+        return 1  # Default to 1 GPU if detection fails
+
+def split_files(input_dir, num_splits):
+    all_files = glob.glob(os.path.join(input_dir, "**", "*.*"), recursive=True)
+    partitions = [[] for _ in range(num_splits)]
+    for idx, file in enumerate(all_files):
+        partitions[idx % num_splits].append(file)
+    return partitions
+
 def process_job(job_id):
     try:
         JOBS[job_id]["status"] = "receiving"
@@ -65,22 +81,36 @@ def process_job(job_id):
 
         actual_input_dir = unzip_and_get_input_dir(zip_path, IN_DIR)
 
-        JOBS[job_id]["status"] = "processing"
-        with subprocess.Popen([
-            "python", "inference_realesrgan.py",
-            "-i", actual_input_dir,
-            "-o", OUT_DIR,
-            "-n", model_name,
-            "-t", "1000",
-            "--tile_pad", "0"
-        ], cwd=REAL_ESRGAN_DIR, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1) as proc:
-            for line in proc.stdout:
-                print(line, end='')
-            proc.wait()
-            if proc.returncode != 0:
-                raise subprocess.CalledProcessError(proc.returncode, proc.args)
+        # ✨ Prepare folders per GPU
+        num_gpus = get_num_gpus()
+        partitions = split_files(actual_input_dir, num_gpus)
 
-        # ✨ ADD THIS BEFORE zipping
+        JOBS[job_id]["status"] = "processing"
+
+        processes = []
+        for gpu_id, files in enumerate(partitions):
+            gpu_input_dir = os.path.join(IN_DIR, f"gpu_{gpu_id}")
+            os.makedirs(gpu_input_dir, exist_ok=True)
+            for file in files:
+                shutil.copy(file, gpu_input_dir)
+
+            p = subprocess.Popen([
+                "python", "inference_realesrgan.py",
+                "-i", gpu_input_dir,
+                "-o", OUT_DIR,
+                "-n", model_name,
+                "-t", "1000",
+                "--tile_pad", "0",
+                "--gpu-id", str(gpu_id)
+            ], cwd=REAL_ESRGAN_DIR, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+
+            processes.append(p)
+
+        for p in processes:
+            p.wait()
+            if p.returncode != 0:
+                raise subprocess.CalledProcessError(p.returncode, p.args)
+
         import json
         credentials_path = "/workspace/gcs_key.json"
         with open(credentials_path, "w") as f:
@@ -134,8 +164,9 @@ def job_status(job_id):
         "job_id": job_id,
         "status": job["status"],
         "error": job.get("error"),
-        "gcs_url": job.get("gcs_url")
+        "gcs_url": job.get("gcs_url"),
     })
+
 
 @app.route("/jobs/<job_id>/download_url", methods=["GET"])
 def get_download_url(job_id):
