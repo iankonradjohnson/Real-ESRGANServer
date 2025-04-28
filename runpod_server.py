@@ -176,5 +176,9 @@ def get_download_url(job_id):
 
     return jsonify({"download_url": job["gcs_url"]})
 
+@app.route("/health", methods=["GET"])
+def get_health():
+    return jsonify({"health": "healthy"})
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
