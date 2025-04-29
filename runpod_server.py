@@ -25,10 +25,12 @@ os.makedirs(IN_DIR, exist_ok=True)
 os.makedirs(OUT_DIR, exist_ok=True)
 os.makedirs(TMP_DIR, exist_ok=True)
 
+
 def find_latest_zip(directory):
     files = [f for f in os.listdir(directory) if f.endswith(".zip")]
     files = sorted(files, key=lambda x: os.path.getctime(os.path.join(directory, x)), reverse=True)
     return os.path.join(directory, files[0]) if files else None
+
 
 def unzip_and_get_input_dir(zip_path, extract_root):
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
@@ -36,8 +38,10 @@ def unzip_and_get_input_dir(zip_path, extract_root):
     folder_name = os.path.splitext(os.path.basename(zip_path))[0]
     return os.path.join(extract_root, folder_name)
 
+
 def zip_dir(source_dir, output_zip):
     shutil.make_archive(output_zip.replace(".zip", ""), 'zip', source_dir)
+
 
 def upload_to_gcs(bucket_name, source_path, dest_blob_name):
     client = storage.Client()
@@ -54,12 +58,14 @@ def get_num_gpus():
     except Exception:
         return 1  # Default to 1 GPU if detection fails
 
+
 def split_files(input_dir, num_splits):
     all_files = glob.glob(os.path.join(input_dir, "**", "*.*"), recursive=True)
     partitions = [[] for _ in range(num_splits)]
     for idx, file in enumerate(all_files):
         partitions[idx % num_splits].append(file)
     return partitions
+
 
 def process_job(job_id):
     try:
@@ -102,7 +108,8 @@ def process_job(job_id):
                 "-t", "1000",
                 "--tile_pad", "0",
                 "--gpu-id", str(gpu_id)
-            ], cwd=REAL_ESRGAN_DIR, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+            ], cwd=REAL_ESRGAN_DIR, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                bufsize=1)
 
             processes.append(p)
 
@@ -122,7 +129,8 @@ def process_job(job_id):
         zip_dir(OUT_DIR, output_zip_path)
 
         JOBS[job_id]["status"] = "uploading"
-        public_url = upload_to_gcs(JOBS[job_id]["gcs_bucket_name"], output_zip_path, f"jobs/{job_id}_out.zip")
+        public_url = upload_to_gcs(JOBS[job_id]["gcs_bucket_name"], output_zip_path,
+                                   f"jobs/{job_id}_out.zip")
 
         JOBS[job_id]["status"] = "completed"
         JOBS[job_id]["gcs_url"] = public_url
@@ -130,7 +138,6 @@ def process_job(job_id):
     except Exception as e:
         JOBS[job_id]["status"] = "error"
         JOBS[job_id]["error"] = str(e)
-
 
 
 @app.route("/jobs", methods=["POST"])
@@ -176,9 +183,11 @@ def get_download_url(job_id):
 
     return jsonify({"download_url": job["gcs_url"]})
 
+
 @app.route("/health", methods=["GET"])
 def get_health():
     return jsonify({"health": "healthy"})
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
