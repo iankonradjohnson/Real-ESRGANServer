@@ -26,12 +26,6 @@ os.makedirs(OUT_DIR, exist_ok=True)
 os.makedirs(TMP_DIR, exist_ok=True)
 
 
-def find_latest_zip(directory):
-    files = [f for f in os.listdir(directory) if f.endswith(".zip")]
-    files = sorted(files, key=lambda x: os.path.getctime(os.path.join(directory, x)), reverse=True)
-    return os.path.join(directory, files[0]) if files else None
-
-
 def unzip_and_get_input_dir(zip_path, extract_root):
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
         zip_ref.extractall(extract_root)
@@ -69,16 +63,13 @@ def split_files(input_dir, num_splits):
 
 def process_job(job_id):
     try:
-        JOBS[job_id]["status"] = "receiving"
-        receive_code = JOBS[job_id]["receive_code"]
         model_name = JOBS[job_id]["model_name"]
-
-        subprocess.run(f"runpodctl receive {receive_code}", shell=True, check=True)
+        input_filename = JOBS[job_id]["input_filename"]
 
         JOBS[job_id]["status"] = "unzipping"
-        zip_path = find_latest_zip(WORKSPACE_DIR)
-        if not zip_path:
-            raise FileNotFoundError("No .zip file found after receive")
+        zip_path = input_filename
+        if not os.path.exists(zip_path):
+            raise FileNotFoundError(f"Input file not found: {zip_path}")
 
         shutil.rmtree(IN_DIR, ignore_errors=True)
         shutil.rmtree(OUT_DIR, ignore_errors=True)
@@ -143,13 +134,13 @@ def process_job(job_id):
 @app.route("/jobs", methods=["POST"])
 def create_job():
     data = request.get_json()
-    if not data or "receive_code" not in data or "model_name" not in data or "gcs_credentials_json" not in data or "gcs_bucket_name" not in data:
+    if not data or "input_filename" not in data or "model_name" not in data or "gcs_credentials_json" not in data or "gcs_bucket_name" not in data:
         return jsonify({"error": "Missing fields"}), 400
 
     job_id = str(uuid.uuid4())
     JOBS[job_id] = {
         "status": "pending",
-        "receive_code": data["receive_code"],
+        "input_filename": data["input_filename"],
         "model_name": data["model_name"],
         "gcs_credentials_json": data["gcs_credentials_json"],
         "gcs_bucket_name": data["gcs_bucket_name"]
